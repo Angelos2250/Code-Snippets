@@ -1,0 +1,538 @@
+
+use('University');
+db.dropDatabase()
+db.createCollection("CourseCatalog", {
+    "capped": false,
+    "validator": {
+        "$jsonSchema": {
+            "bsonType": "object",
+            "title": "CourseCatalog",
+            "properties": {
+                "_id": {
+                    "bsonType": "objectId"
+                },
+                "year": {
+                    "bsonType": "number",
+                    "minimum": 1
+                },
+                "term": {
+                    "bsonType": "string",
+                    "enum": [
+                        "winter",
+                        "summer"
+                    ]
+                },
+                "campus": {
+                    "bsonType": "string",
+                    "enum": [
+                        "Linz",
+                        "Hagenberg",
+                        "Wels",
+                        "Steyr"
+                    ]
+                },
+                "degreeProgrammes": {
+                    "bsonType": "array",
+                    "additionalItems": true,
+                    "minItems": 1,
+                    "items": {
+                        "bsonType": "object",
+                        "properties": {
+                            "code": {
+                                "bsonType": "string",
+                                "pattern": "^[0-9]{4}$"
+                            },
+                            "name": {
+                                "bsonType": "string"
+                            },
+                            "abbrevation": {
+                                "bsonType": "string"
+                            }
+                        },
+                        "additionalProperties": false
+                    }
+                }
+            },
+            "additionalProperties": false,
+            "required": [
+                "year",
+                "term",
+                "campus",
+                "degreeProgrammes"
+            ]
+        }
+    },
+    "validationLevel": "strict",
+    "validationAction": "error"
+});
+
+db.CourseCatalog.createIndex({
+    "year": 1,
+    "term": 1,
+    "campus": 1
+},
+{
+    "name": "cc_ind",
+    "unique": true,
+    "dropDups": true
+});
+
+
+
+
+db.createCollection("DegreeProgramme", {
+    "capped": false,
+    "validator": {
+        "$jsonSchema": {
+            "bsonType": "object",
+            "title": "DegreeProgramme",
+            "properties": {
+                "_id": {
+                    "bsonType": "objectId"
+                },
+                "code": {
+                    "bsonType": "string",
+                    "pattern": "^[0-9]{4}$"
+                },
+                "name": {
+                    "bsonType": "string"
+                },
+                "abbrevation": {
+                    "bsonType": "string"
+                }
+            },
+            "additionalProperties": true,
+            "required": [
+                "code"
+            ]
+        }
+    },
+    "validationLevel": "strict",
+    "validationAction": "error"
+});
+
+db.DegreeProgramme.createIndex({
+    "code": 1
+},
+{
+    "name": "code_ind",
+    "unique": true,
+    "dropDups": true
+});
+
+
+
+
+db.createCollection("Course", {
+    "capped": false,
+    "validator": {
+        "$jsonSchema": {
+            "bsonType": "object",
+            "title": "Course",
+            "properties": {
+                "_id": {
+                    "bsonType": "objectId"
+                },
+                "courseId": {
+                    "bsonType": "string",
+                    "pattern": "^cID[0-9]{4}$"
+                },
+                "title": {
+                    "bsonType": "string"
+                },
+                "courseType": {
+                    "bsonType": "string",
+                    "enum": [
+                        "Lecture",
+                        "Seminar",
+                        "LabSession",
+                        "PracticeSession",
+                        "Training"
+                    ]
+                },
+                "semester": {
+                    "bsonType": "number",
+                    "minimum": 1,
+                    "maximum": 6
+                },
+                "semesterHours": {
+                    "bsonType": "number",
+                    "minimum": 0,
+                    "exclusiveMinimum": true
+                },
+                "credit": {
+                    "bsonType": "object",
+                    "properties": {
+                        "amount": {
+                            "bsonType": "number",
+                            "maximum": 30,
+                            "minimum": 0
+                        },
+                        "creditType": {
+                            "bsonType": "string",
+                            "enum": [
+                                "ECTS",
+                                "CP"
+                            ]
+                        }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                        "amount",
+                        "creditType"
+                    ]
+                },
+                "language": {
+                    "bsonType": "string"
+                },
+                "descriptionId": {
+                    "bsonType": "number",
+                    "minimum": 1
+                },
+                "degreeProgrammes": {
+                    "bsonType": "array",
+                    "additionalItems": true,
+                    "minItems": 1,
+                    "items": {
+                        "bsonType": "string",
+                        "pattern": "^[0-9]{4}$"
+                    }
+                },
+                "tutors": {
+                    "bsonType": "array",
+                    "additionalItems": true,
+                    "minItems": 0,
+                    "maxItems": 5,
+                    "items": {
+                        "bsonType": "object",
+                        "properties": {
+                            "matNr": {
+                                "bsonType": "string",
+                                "pattern": "^S?[0-9]{8,10}$"
+                            },
+                            "name": {
+                                "bsonType": "string"
+                            }
+                        },
+                        "additionalProperties": true,
+                        "required": [
+                            "matNr"
+                        ]
+                    }
+                },
+                "instructors": {
+                    "bsonType": "array",
+                    "additionalItems": true,
+                    "minItems": 1,
+                    "maxItems": 3,
+                    "items": {
+                        "bsonType": "object",
+                        "properties": {
+                            "instructorNr": {
+                                "bsonType": "string",
+                                "pattern": "^p[1-4]{1}[0-9]{4}$"
+                            },
+                            "name": {
+                                "bsonType": "string"
+                            }
+                        },
+                        "additionalProperties": true,
+                        "required": [
+                            "instructorNr"
+                        ]
+                    }
+                },
+                "nextCourse": {
+                    "bsonType": "string",
+                    "pattern": "^(cID[0-9]{4})|null$"
+                },
+                "prevCourse": {
+                    "bsonType": "string",
+                    "pattern": "^(cID[0-9]{4})|null$"
+                }
+            },
+            "additionalProperties": false,
+            "required": [
+                "courseId",
+                "title",
+                "courseType",
+                "semester",
+                "semesterHours",
+                "degreeProgrammes",
+                "instructors"
+            ]
+        }
+    },
+    "validationLevel": "strict",
+    "validationAction": "error"
+});
+
+db.Course.createIndex({
+    "courseId": 1
+},
+{
+    "name": "course_ind",
+    "unique": true,
+    "dropDups": true
+});
+
+
+
+
+db.createCollection("Appointment", {
+    "capped": false,
+    "validator": {
+        "$jsonSchema": {
+            "bsonType": "object",
+            "title": "Appointment",
+            "properties": {
+                "_id": {
+                    "bsonType": "objectId"
+                },
+                "startTime": {
+                    "bsonType": "date"
+                },
+                "courseId": {
+                    "bsonType": "string",
+                    "pattern": "^cID[0-9]{4}$"
+                },
+                "roomId": {
+                    "bsonType": "number",
+                    "minimum": 0
+                },
+                "length": {
+                    "bsonType": "object",
+                    "properties": {
+                        "value": {
+                            "bsonType": "number"
+                        },
+                        "unit": {
+                            "bsonType": "string"
+                        }
+                    },
+                    "additionalProperties": false
+                },
+                "adress": {
+                    "bsonType": "object",
+                    "properties": {
+                        "zip": {
+                            "bsonType": "number",
+                            "minimum": 1000,
+                            "maximum": 9999
+                        },
+                        "street": {
+                            "bsonType": "string"
+                        },
+                        "houseNumber": {
+                            "bsonType": "string"
+                        },
+                        "country": {
+                            "bsonType": "string"
+                        }
+                    },
+                    "additionalProperties": true,
+                    "required": [
+                        "zip",
+                        "street",
+                        "houseNumber",
+                        "country"
+                    ]
+                }
+            },
+            "additionalProperties": true,
+            "required": [
+                "startTime",
+                "courseId"
+            ]
+        }
+    },
+    "validationLevel": "strict",
+    "validationAction": "error"
+});
+
+db.Appointment.createIndex({
+    "startTime": 1,
+    "courseId": 1
+},
+{
+    "name": "appointment_ind",
+    "unique": true,
+    "dropDups": true
+});
+
+
+
+
+db.createCollection("Room", {
+    "capped": false,
+    "validator": {
+        "$jsonSchema": {
+            "bsonType": "object",
+            "title": "Room",
+            "properties": {
+                "_id": {
+                    "bsonType": "objectId"
+                },
+                "roomId": {
+                    "bsonType": "number",
+                    "minimum": 0
+                },
+                "roomNumber": {
+                    "bsonType": "string"
+                },
+                "building": {
+                    "bsonType": "string"
+                },
+                "description": {
+                    "bsonType": "string"
+                }
+            },
+            "additionalProperties": false,
+            "required": [
+                "roomId",
+                "roomNumber",
+                "building"
+            ]
+        }
+    },
+    "validationLevel": "strict",
+    "validationAction": "error"
+});
+
+db.Room.createIndex({
+    "roomId": 1
+},
+{
+    "name": "room_ind",
+    "unique": true,
+    "dropDups": true
+});
+
+
+
+
+db.createCollection("Description", {
+    "capped": false,
+    "validator": {
+        "$jsonSchema": {
+            "bsonType": "object",
+            "title": "Description",
+            "properties": {
+                "_id": {
+                    "bsonType": "objectId"
+                },
+                "descriptionId": {
+                    "bsonType": "number",
+                    "minimum": 1
+                },
+                "text": {
+                    "bsonType": "string"
+                },
+                "content": {
+                    "bsonType": "string"
+                },
+                "exam": {
+                    "bsonType": "string"
+                },
+                "tool": {
+                    "bsonType": "string"
+                }
+            },
+            "additionalProperties": true,
+            "required": [
+                "descriptionId"
+            ]
+        }
+    },
+    "validationLevel": "strict",
+    "validationAction": "error"
+});
+
+db.Description.createIndex({
+    "descriptionId": 1
+},
+{
+    "name": "description_ind",
+    "unique": true,
+    "dropDups": true
+});
+
+
+
+
+db.createCollection("Tutor", {
+    "capped": false,
+    "validator": {
+        "$jsonSchema": {
+            "bsonType": "object",
+            "title": "Tutor",
+            "properties": {
+                "_id": {
+                    "bsonType": "objectId"
+                },
+                "matNr": {
+                    "bsonType": "string",
+                    "pattern": "^S?[0-9]{8,10}$"
+                },
+                "name": {
+                    "bsonType": "string"
+                }
+            },
+            "additionalProperties": true,
+            "required": [
+                "matNr"
+            ]
+        }
+    },
+    "validationLevel": "strict",
+    "validationAction": "error"
+});
+
+db.Tutor.createIndex({
+    "matNr": 1
+},
+{
+    "name": "tutor_ind",
+    "unique": true,
+    "dropDups": true
+});
+
+
+
+
+db.createCollection("Instructor", {
+    "capped": false,
+    "validator": {
+        "$jsonSchema": {
+            "bsonType": "object",
+            "title": "Instructor",
+            "properties": {
+                "_id": {
+                    "bsonType": "objectId"
+                },
+                "instructorNr": {
+                    "bsonType": "string",
+                    "pattern": "^p[1-4]{1}[0-9]{4}$"
+                },
+                "name": {
+                    "bsonType": "string"
+                }
+            },
+            "additionalProperties": true,
+            "required": [
+                "instructorNr"
+            ]
+        }
+    },
+    "validationLevel": "strict",
+    "validationAction": "error"
+});
+
+db.Instructor.createIndex({
+    "instructorNr": 1
+},
+{
+    "name": "instructor_ind",
+    "unique": true,
+    "dropDups": true
+});

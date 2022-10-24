@@ -1,0 +1,298 @@
+use('University');
+//Lets say we want to add a property on all of our tutors. Like a salary for example. To make it easier for ourselves we are gonna assume that all tutors get 1000$ a month. Lets add this to our database
+db.Tutor.updateMany({},{$set:{"salary":{"value":1000,"unit":"$/month"}}});
+
+//Now Lets say we want to update the salary of the Tutors with the name: Evan Cisneros & Maxwell Glenn and increase it by a 1000
+db.Tutor.updateMany({ $or:[{"name":"Evan Cisneros"}, {"name":"Maxwell Glenn"}]},{$inc:{"salary.value":1000}});
+
+//Now to check lets find all tutors who have a salary of 2000
+db.Tutor.find({"salary.value":2000});
+
+//Now lets say Evan wants to add his mail to the Database.
+db.Tutor.updateOne({"name":"Evan Cisneros"},{$set:{"email":"evan.cisneros@fhooe.at"}});
+
+//Now lets say we want flag all tutors that their matNr starts with "s1"
+db.Tutor.updateMany({"matNr": /s1/i},{$set:{flagged:true}});
+db.Tutor.find({"matNr":/S1/});
+
+//Now because of the many-to-many relationship between tutor and Course we also have to Update the tutor Subdocs in the Course Documents. We have an important decision to make though.
+//What information of the Tutors do we want to provide within a Course? Salary for example is not really needed. And if they are flagged doesnt matter either. So the only we could add
+//is the email adress. Lets do that:
+db.Course.find({"tutors.name":"Evan Cisneros"});
+db.Course.updateMany({"tutors.name":"Evan Cisneros"},{$set:{"tutors.$.email":"evan.cisneros@fhooe.at"}});
+//But this is probably a bad idea as 1.It increases the size of the Course Collection by alot and 2. because of that it would be alot more benefitial for us if we want to find out Evans email
+//to just query it with the $lookup operator. So its best we revert it.
+db.Course.updateMany({}, {"$unset": {"tutors.$[].email":""}})
+
+//Lets dive deeper into Logical Operators:
+//We want to find the courses that are taught in german or in Spanish or in Japanese
+db.Course.find({$or:[{"language":"Spanish"},{"language":"German"},{"language":"Japanese"}]});
+//.count() gives us 3 results
+//Now we want all Courses that have semesterHours between 10 and 20
+db.Course.find({$and:[{"semesterHours":{"$gte":10}},{"semesterHours":{"$lte":20}}]});
+//.count() gives us 3 results
+//And now we want all courses taught either in german,spanish or Japanese AND(explicit) that have semesterHours between 10 and 20
+db.Course.find({$and:[{$and:[{"semesterHours":{"$gte":10}},{"semesterHours":{"$lte":20}}]},{$or:[{"language":"Spanish"},{"language":"German"},{"language":"Japanese"}]}]});
+//.count() gives us 1 result
+
+//$expr
+//Find out if Courses exist that have a tutor that is also an instructor.
+//Lets add a Course where this is the case:
+db.Instructor.insert(
+  {"instructorNr":"p38787","name":"Evan Cisneros"}
+);
+db.Course.insertMany([
+  {"courseId":"cID7867","title":"Testing Course","courseType":"Training","semester":3,"semesterHours":5,"credit":{"amount":10,"creditType":"CP"},"language":"Japanese","descriptionId":1,"degreeProgrammes":["0491","0591","7875","9796","7019","4492","7476","9257","4037"],"tutors":[{"matNr":"S14629490","name":"Evan Cisneros"}],"instructors":[{"instructorNr":"p38787","name":"Evan Cisneros"}]},
+]);
+db.Course.find({"$expr":{ "$eq": [ "$tutors.name", "$instructors.name"] }});
+//More on that later (Aggregations...)
+
+//Array Operators
+//Lets say we want to find all Courses that have no Tutors
+db.Course.find({"tutors":{"$size":0}});
+
+//Now Lets find all Courses where Evan Cisneros is a tutor:
+use('University');
+db.Course.find({"tutors.name":"Evan Cisneros"});
+
+//Now Lets find the Courses that are only part of Bachelor of Canon Law(code:4037) and Bachelor of Business Administration degrees(code:4492).
+db.Course.find({"degreeProgrammes":{"$size": 2,"$all":["4037","4492"]}});
+
+//Now lets say we want all the Courses where there is atleast a tutor with a matNr that starts with "s1" (/s1/i). Nur Name und matNr ausgeben
+db.Course.find({"tutors":{"$elemMatch": {"matNr":/s1/i}}},{"tutors.name":1,"tutors.matNr":1}).pretty();
+
+
+
+//Aggragate Framework
+
+//test Extended Reference Pattern
+db.Appointment.aggregate([{"$lookup": { "from": "Course", "localField": "courseId", "foreignField": "courseId", "as": "cId"}}, 
+{"$project": {"courseTitle":"$cId.title","courseType":"$cId.courseType", "courseId" : 1, "startTime":1}}
+]).explain("executionStats");
+
+//Apply Extended Reference Pattern
+db.Appointment.aggregate([{"$lookup": { "from": "Course", "localField": "courseId", "foreignField": "courseId", "as": "cId"}}, 
+{"$addFields": {"courseTitle": {  "$first": '$cId.title' }}},
+{"$addFields": {"courseType": {  "$first": '$cId.courseType' }}},
+{"$project": {"cId":0}},
+{"$merge": { "into": "Appointment", "whenMatched": 'replace', "whenNotMatched": 'discard'}}
+]);
+
+db.Appointment.aggregate([{"$project": {"courseTitle":1,"courseType":1, "courseId" : 1, "startTime":1}}
+]).explain("executionStats");
+
+//Find the countries where Appointments take place
+db.Appointment.aggregate([{"$group": {"_id":"$adress.country"}}]);
+
+//Count all of the countries
+db.Appointment.aggregate([{"$group": {"_id":"$adress.country"}},
+                          {"$count": "Count_of_countries"}]);
+
+//Project mathematics course and all the instructors with only their name
+db.Course.aggregate([{"$match":{"title":"Mathematics"}},{"$project":{"name":1, "courseType":1, "instructors":"$instructors.name"}}]);
+
+//Find out the sum of the Semesterhours for all degreeProgrammes APPLY COMPUTED PATTERN HERE
+db.Course.aggregate([{ "$unwind" : "$degreeProgrammes" },
+                     {"$group":{"_id": "$degreeProgrammes","totalAmount": { "$sum": "$semesterHours" }}}]);
+
+//Apply Computed Pattern
+db.Course.aggregate([{ "$unwind" : "$degreeProgrammes" },
+                     {"$group":{"_id": "$degreeProgrammes","totalSemesterHours": { "$sum": "$semesterHours" }}},
+                     {"$lookup": { "from": "DegreeProgramme", "localField": "_id", "foreignField": "code", "as": "dId"}}, 
+                     { "$unwind" : "$dId" },
+                     {"$project": {"_id":"$dId._id", "code":"$dId.code","name":"$dId.name","abbrevation":"$dId.abbrevation", "totalAmount":1}},
+                     {"$merge": { "into": "DegreeProgramme", "whenMatched": 'replace', "whenNotMatched": 'discard'}}
+                     ]);
+
+db.DegreeProgramme.find();
+
+//Find out the sum of the Semesterhours for Bachelor of Architecture(0491)
+db.Course.aggregate([{"$unwind" : "$degreeProgrammes"},
+                     {"$match":{"degreeProgrammes":"0491"}},
+                     {"$group":{"_id": "$degreeProgrammes","totalAmount": { "$sum": "$semesterHours" }}},
+                     {"$project":{"_id":0,"Coursename": "Bachelor of Architecture", "totalAmount":1}},
+                     {"$replaceRoot": {newRoot: {"Coursename": "$Coursename","totalAmount": "$totalAmount"}}}]);
+
+//Find the avg Appointment length for each course
+db.Appointment.aggregate([{"$group":{"_id":"$courseId","average":{"$avg" : "$length.value"}}}]);
+
+//find all degreeProgrammes of which their courses have an avg credit of >=15
+db.Course.aggregate([{"$unwind" : "$degreeProgrammes"},
+                     {"$group":{"_id": "$degreeProgrammes","avg_credits": { "$avg": "$credit.amount" }}},
+                     {"$match":{"avg_credits":{"$gte": 15}}},
+                     {"$project":{"Course": "$degreeProgrammes", "avg_credits":1}}]);
+
+//find all tutors that have an email
+db.Tutor.aggregate([{"$match":{"email":{"$ne":null}}}]);
+
+//find the course with the highest amount of Credit
+db.Course.aggregate([{"$project": {"max_cp": {"$max": "$credit.amount"}}}]);
+
+//$lookup stage: 
+//Retrieve the degreeprogrammes of the following Course but with their respected names instead of just their ids
+db.Course.aggregate([{"$match": {"courseId":"cID9813"}},
+                     {"$lookup":{ "from" : "DegreeProgramme",
+                                  "localField": "degreeProgrammes",
+                                  "foreignField": "code",
+                                  "as" : "DegreeProgrammes"}},
+                     {"$project": {"courseId":1,"DegreeProgrammes.name":1}}]);
+
+//Retrieve the degreeprogrammes of all Courses but with their respected names instead of just their ids
+db.Course.aggregate([{"$lookup":{ "from" : "DegreeProgramme",
+                                  "localField": "degreeProgrammes",
+                                  "foreignField": "code",
+                                  "as" : "DegreeProgrammes"}},
+                     {"$project": {"courseId":1,"DegreeProgrammes.name":1}}]);
+
+
+//Analytic Queries
+//Retrieve a List of the Degreeprogrammes with the most Courses
+db.Course.aggregate([{"$lookup":{ "from" : "DegreeProgramme",
+                                  "localField": "degreeProgrammes",
+                                  "foreignField": "code",
+                                  "as" : "DegreeProgrammes"}},
+                     {"$project": {"courseId":1,"DegreeProgrammes.name":1}},
+                     {"$unwind":"$DegreeProgrammes"},
+                     {"$sortByCount":"$DegreeProgrammes.name"}]);
+
+//Facets
+//In one Query retrieve a List of the Degreeprogrammes with the most Courses and a list of the Tutors with the most courses in the 3rd Semester
+db.Course.aggregate([{"$match" :{"semester": 3}},
+                     {"$facet":{
+                      "Departments": [{"$lookup":{ "from" : "DegreeProgramme",
+                                  "localField": "degreeProgrammes",
+                                  "foreignField": "code",
+                                  "as" : "DegreeProgrammes"}},
+                     {"$project": {"courseId":1,"DegreeProgrammes.name":1}},
+                     {"$unwind":"$DegreeProgrammes"},
+                     {"$sortByCount":"$DegreeProgrammes.name"}],
+                      "Instructors":[{"$unwind":"$tutors"},{"$sortByCount":"$tutors.name"}]}}]);
+
+//Graphlookup
+//Find the all the previous Courses of Course cID5061
+db.Course.aggregate([{"$match" :{"courseId" : "cID5061"}},
+                     {"$graphLookup":{ "from": "Course",
+                     "startWith": "$prevCourse",
+                     "connectFromField": "prevCourse",
+                     "connectToField" : "courseId",
+                     "as": "CourseHierarchy"}},
+                     {"$project": {"courseId":1,"CourseHierarchy.title":1}}]);
+//Find the all the next Courses of Course cID3572 
+db.Course.aggregate([{"$match" :{"courseId" : "cID3572"}},
+                     {"$graphLookup":{ "from": "Course",
+                     "startWith": "$nextCourse",
+                     "connectFromField": "nextCourse",
+                     "connectToField" : "courseId",
+                     "as": "CourseHierarchy"}},
+                     {"$project": {"courseId":1,"CourseHierarchy.title":1}}]);
+
+//skip limit sort
+use('University');
+db.Course.find({"courseType" : "Training"}).sort({"semesterHours":-1}).skip(3).limit(3).explain();
+
+//Indexing examples
+
+//sparse Index
+use('University');
+db.Tutor.aggregate([{ "$match" : { "email" : { "$exists" : true }}}]).explain("executionStats");
+//examined docs = 20
+db.Tutor.createIndex({"email": 1}, {"sparse": true});
+//examined docs = 1
+
+//Multikey Index
+db.Course.find({"degreeProgrammes":{"$size": 2,"$all":["4037","4492"]}}).explain("executionStats");
+//examined docs = 20
+db.Course.createIndex( { "degreeProgrammes": 1 } );
+//examined docs = 10
+
+db.Course.find({"courseType":"Training"},{"courseType":1,"title":1}).explain("executionStats");
+//21 docs examined
+db.Course.createIndex( { "courseType": 1 } );
+//12 docs examined
+
+
+db.Course.dropIndex("courseType_1");
+
+
+
+
+
+//read s213
+
+
+/*
+$concat        Concatenates two or more strings into a single string
+$strcasecmp    Case-insensitive string comparison that returns a number
+$substr        Creates a substring of a string
+$toLower       Converts a string to all lowercase
+$toUpper       Converts a string to all uppercase
+*/
+
+
+/*
+    from: specify the collection from which you need to search, It can be used in same collection or in different as well
+    startWith: Name of Array
+    connectFromField: field of Array
+    connectToField: from which field It will match
+    as: Name of array in which we need our response to get only name of managers we can use $project which will return only specific property of Supervisors array
+*/
+
+
+//In appointments auch den Namen des Kurses; in Courses auch den namen des Programms
+//Interessant: Accumulator Stage
+//$bucket need an example for that
+//$sample???????
+//limit(); sort();
+//$setWindowFields = PArtition By
+
+/*
+FRAGEN:
+1.Englisch oder Deutsch? Englisch ok
+3.INSERT SCRIPT Daten sollen die mehr Sinn machen? Ne
+4.Darf ich f�r die Bachelorarbeit mehr Beispiele ausdenken die nichts mit dem Coursecatalog zu tun haben? Ja
+5.Idee: Am Ende jedes Kapitels die SQL Alternative Darstellen und vergleichen in tabellenform(Bezogen auf abfragen eher) Nicht fokus
+6.Gibt es MongoDB Features die ich vlt �bersehen habe die unbedingt dabei sein m�ssen?
+7.Praktikum: Empfehlung von Unternehmen die Data Science machen in Deutschland? bzw auf was sollte ich da aufpassen?
+8.M�ssen Transaktionen drin sein? Oder kann ich mich f�r ein Anderes Thema entscheiden?Ne
+Kriterien?
+Unterabfragen,
+Ref Integrit�t
+
+Kriterien:
+Integrität der Daten
+z.B. Vermeidung von
+ Mehrfachspeicherung
+(Redundanz)
+ Widersprüchlichen Daten
+(Konsistenz)
+ Unterschiedlichem Aufbau
+(Struktur), z.B. in Anzahl (4
+statt 3) bzw. Art (z.B. Datentyp)
+
+Vertraulichkeit der Daten
+z.B. Schutz der Daten vor
+unberechtigtem Zugriff, d.h.,
+ unberechtigte Personen sollen
+nicht zugreifen dürfen bzw.
+ bestimmte Personen dürfen u.U.
+nur einen Ausschnitt der Daten
+sehen
+
+Verfügbarkeit der Daten
+z.B. auch im Fehlerfall, d.h.,
+bei einem Stromausfall oder
+Systemcrash
+
+Schemadefinition
+Datentypen
+Definition von Attributen
+Definition von Integritätsbedingungen
+Definition von Basistabellen
+Referentielle Integrität
+Referentielle Integritätsbedingung
+Kaskadierendes Löschen
+Schemaevolution
+
+
+
+*/
